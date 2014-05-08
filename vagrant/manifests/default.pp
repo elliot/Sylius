@@ -5,14 +5,6 @@ group { 'puppet': ensure => present }
 Exec { path => [ '/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/' ] }
 File { owner => 0, group => 0, mode => 0644 }
 
-file { "/dev/shm/sylius":
-  ensure => directory,
-  purge => true,
-  force => true,
-  owner => vagrant,
-  group => vagrant
-}
-
 file { "/var/lock/apache2":
   ensure => directory,
   owner => vagrant
@@ -142,4 +134,40 @@ database{ "${db_name}_test":
   ensure  => present,
   charset => 'utf8',
   require => Class['mysql::server'],
+}
+
+# Create a shared memory segment for Symfony2's cache|logs
+$symfony_shm = "/dev/shm/sylius"
+
+file {["${symfony_shm}",
+       "${symfony_shm}/cache",
+       "${symfony_shm}/logs"]:
+  ensure => directory,
+  purge  => true,
+  force  => true,
+  owner  => vagrant,
+  group  => vagrant
+}
+
+#  Remount part of file hierarchy to another directory
+define remount_folder($source, $target) {
+    exec { "remount_folder_${source}":
+        command => "/bin/mount --bind ${source} ${target}",
+        unless  => "grep -q ${target} /etc/mtab 2>/dev/null",
+        require => [
+            File[$source],
+            File[$target]
+        ]
+    }
+}
+
+# Remount both folders under the share memory segment so the PHP CLI and HTTP use the same location
+remount_folder { "symfony-cache":
+    source => "${symfony_shm}/cache",
+    target => "/var/www/sylius/app/cache/",
+}
+
+remount_folder { "symfony-logs":
+    source => "${symfony_shm}/logs",
+    target => "/var/www/sylius/app/logs",
 }
